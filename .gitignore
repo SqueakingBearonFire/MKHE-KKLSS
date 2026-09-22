@@ -1,0 +1,14 @@
+# 敏感信息：实测日志与分析报告（不入库）
+logs/
+doc/
+
+# 本地工具配置
+.claude/
+
+# 构建产物与协议输出
+*.exe
+dotproduct/data/res*.csv
+dotproductnet/netdata/
+
+# 临时目录
+_smoke/

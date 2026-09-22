@@ -14,6 +14,26 @@ type Parameters struct {
 // NewParameters takes rlwe Parameter as input, generate two CRSs
 // and then return mkrlwe parameter
 func NewParameters(params rlwe.Parameters, gamma int) Parameters {
+	prng, err := utils.NewPRNG()
+	if err != nil {
+		panic(err)
+	}
+	return newParameters(params, gamma, prng)
+}
+
+// NewParametersSeeded is NewParameters with the CRS deterministically derived
+// from seed via a keyed PRNG (blake2b): parties sharing the same seed and the
+// same rlwe.Parameters obtain byte-identical CRS, which the multi-key schemes
+// in this package require (keygen embeds CRS elements into pk and rlk).
+func NewParametersSeeded(params rlwe.Parameters, gamma int, seed []byte) Parameters {
+	prng, err := utils.NewKeyedPRNG(seed)
+	if err != nil {
+		panic(err)
+	}
+	return newParameters(params, gamma, prng)
+}
+
+func newParameters(params rlwe.Parameters, gamma int, prng utils.PRNG) Parameters {
 	ret := new(Parameters)
 	ret.Parameters = params
 	ret.gamma = gamma
@@ -25,10 +45,6 @@ func NewParameters(params rlwe.Parameters, gamma int) Parameters {
 	alpha := params.PCount() / gamma
 	beta := int(math.Ceil(float64(params.QCount()) / float64(alpha)))
 
-	prng, err := utils.NewPRNG()
-	if err != nil {
-		panic(err)
-	}
 	uniformSamplerQ := ring.NewUniformSampler(prng, params.RingQ())
 	uniformSamplerP := ring.NewUniformSampler(prng, params.RingP())
 

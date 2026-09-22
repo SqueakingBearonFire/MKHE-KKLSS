@@ -227,79 +227,7 @@ func runScenario(params Parameters, scenario int, data [][]int64, ws []int64, wd
 		p2cts, st.EncP2Time, fmtMiB(st.EncP2Bytes))
 
 	// -------- Phase 4: homomorphic evaluation under the joint key --------
-	var expMul, expAdd int
-	switch scenario {
-	case ScenarioWeightedSum, ScenarioWeightedSumRowwise:
-		expMul, expAdd = k*ctsPerCol, (k-1)*ctsPerCol
-	case ScenarioSumProduct:
-		expMul, expAdd = (k-1)*ctsPerCol, k*ctsPerCol
-	}
-	logf("phase4 eval: %d MulRelin + %d Add ...", expMul, expAdd)
-
-	t0 = time.Now()
-	resCt := make([]*Ciphertext, ctsPerCol)
-	evalStart := time.Now()
-	mulDone := 0
-	for j := 0; j < ctsPerCol; j++ {
-		switch scenario {
-		case ScenarioWeightedSum, ScenarioWeightedSumRowwise:
-			// res[j] = sum_c D[c][j] * W[c]
-			ta := time.Now()
-			if scenario == ScenarioWeightedSum {
-				resCt[j] = eval.MulRelinNew(ctD[0][j], ctWscalar[0], rlkSet)
-			} else {
-				resCt[j] = eval.MulRelinNew(ctD[0][j], ctWcols[0][j], rlkSet)
-			}
-			st.MulTime += time.Since(ta)
-			mulDone++
-			for c := 1; c < k; c++ {
-				ta = time.Now()
-				var tmp *Ciphertext
-				if scenario == ScenarioWeightedSum {
-					tmp = eval.MulRelinNew(ctD[c][j], ctWscalar[c], rlkSet)
-				} else {
-					tmp = eval.MulRelinNew(ctD[c][j], ctWcols[c][j], rlkSet)
-				}
-				st.MulTime += time.Since(ta)
-				mulDone++
-				ta = time.Now()
-				resCt[j] = eval.AddNew(resCt[j], tmp)
-				st.AddTime += time.Since(ta)
-			}
-		case ScenarioSumProduct:
-			// res[j] = prod_c (D[c][j] + W[c][j]) via a balanced pairwise
-			// product tree (depth ceil(log2 K), minimal noise growth).
-			cur := make([]*Ciphertext, k)
-			for c := 0; c < k; c++ {
-				ta := time.Now()
-				cur[c] = eval.AddNew(ctD[c][j], ctWcols[c][j])
-				st.AddTime += time.Since(ta)
-			}
-			for len(cur) > 1 {
-				nxt := make([]*Ciphertext, 0, (len(cur)+1)/2)
-				for i := 0; i+1 < len(cur); i += 2 {
-					ta := time.Now()
-					p := eval.MulRelinNew(cur[i], cur[i+1], rlkSet)
-					st.MulTime += time.Since(ta)
-					mulDone++
-					nxt = append(nxt, p)
-				}
-				if len(cur)%2 == 1 {
-					nxt = append(nxt, cur[len(cur)-1])
-				}
-				cur = nxt
-			}
-			resCt[j] = cur[0]
-		}
-		logf("  batch %d/%d: %10v elapsed, mul-avg %v",
-			j+1, ctsPerCol, time.Since(evalStart).Round(time.Millisecond),
-			perOp(st.MulTime, mulDone))
-	}
-	st.EvalTime = time.Since(t0)
-	st.MulOps, st.AddOps = expMul, expAdd
-	logf("phase4 eval done: %10v | mul %v (%v/op), add %v (%v/op)",
-		st.EvalTime, st.MulTime, perOp(st.MulTime, st.MulOps),
-		st.AddTime, perOp(st.AddTime, st.AddOps))
+	resCt := EvalScenario(eval, scenario, ctD, ctWscalar, ctWcols, rlkSet, st)
 
 	// -------- Phase 5: threshold decryption (P2 first, then P1) + decode --------
 	res = make([]int64, records)
@@ -364,6 +292,103 @@ func runScenario(params Parameters, scenario int, data [][]int64, ws []int64, wd
 	}
 
 	return res
+}
+
+// EvalScenario runs the homomorphic evaluation circuit of a scenario over
+// already-encrypted inputs: ctD holds P1's columns (k x ctsPerCol), plus
+// either ctW = P2's K broadcast-scalar ciphertexts (scenario 1) or ctWcols =
+// P2's packed column ciphertexts (scenarios 2/3). It returns the ctsPerCol
+// result ciphertexts under the joint key and accumulates mul/add timings and
+// operation counts into st (st.Verbose enables per-batch logging). Extracted
+// from runScenario so that networked (mknet) evaluators reuse the exact same
+// circuit.
+func EvalScenario(eval *Evaluator, scenario int, ctD [][]*Ciphertext, ctW []*Ciphertext, ctWcols [][]*Ciphertext, rlkSet *RelinearizationKeySet, st *DotProductStats) (resCt []*Ciphertext) {
+	k := len(ctD)
+	ctsPerCol := len(ctD[0])
+
+	var expMul, expAdd int
+	switch scenario {
+	case ScenarioWeightedSum, ScenarioWeightedSumRowwise:
+		expMul, expAdd = k*ctsPerCol, (k-1)*ctsPerCol
+	case ScenarioSumProduct:
+		expMul, expAdd = (k-1)*ctsPerCol, k*ctsPerCol
+	default:
+		panic("EvalScenario: unknown scenario " + fmt.Sprint(scenario))
+	}
+
+	logf := func(format string, args ...interface{}) {
+		if st.Verbose {
+			fmt.Printf("[mkbfv] "+format+"\n", args...)
+		}
+	}
+	logf("phase4 eval: %d MulRelin + %d Add ...", expMul, expAdd)
+
+	t0 := time.Now()
+	resCt = make([]*Ciphertext, ctsPerCol)
+	evalStart := time.Now()
+	mulDone := 0
+	for j := 0; j < ctsPerCol; j++ {
+		switch scenario {
+		case ScenarioWeightedSum, ScenarioWeightedSumRowwise:
+			// res[j] = sum_c D[c][j] * W[c]
+			ta := time.Now()
+			if scenario == ScenarioWeightedSum {
+				resCt[j] = eval.MulRelinNew(ctD[0][j], ctW[0], rlkSet)
+			} else {
+				resCt[j] = eval.MulRelinNew(ctD[0][j], ctWcols[0][j], rlkSet)
+			}
+			st.MulTime += time.Since(ta)
+			mulDone++
+			for c := 1; c < k; c++ {
+				ta = time.Now()
+				var tmp *Ciphertext
+				if scenario == ScenarioWeightedSum {
+					tmp = eval.MulRelinNew(ctD[c][j], ctW[c], rlkSet)
+				} else {
+					tmp = eval.MulRelinNew(ctD[c][j], ctWcols[c][j], rlkSet)
+				}
+				st.MulTime += time.Since(ta)
+				mulDone++
+				ta = time.Now()
+				resCt[j] = eval.AddNew(resCt[j], tmp)
+				st.AddTime += time.Since(ta)
+			}
+		case ScenarioSumProduct:
+			// res[j] = prod_c (D[c][j] + W[c][j]) via a balanced pairwise
+			// product tree (depth ceil(log2 K), minimal noise growth).
+			cur := make([]*Ciphertext, k)
+			for c := 0; c < k; c++ {
+				ta := time.Now()
+				cur[c] = eval.AddNew(ctD[c][j], ctWcols[c][j])
+				st.AddTime += time.Since(ta)
+			}
+			for len(cur) > 1 {
+				nxt := make([]*Ciphertext, 0, (len(cur)+1)/2)
+				for i := 0; i+1 < len(cur); i += 2 {
+					ta := time.Now()
+					p := eval.MulRelinNew(cur[i], cur[i+1], rlkSet)
+					st.MulTime += time.Since(ta)
+					mulDone++
+					nxt = append(nxt, p)
+				}
+				if len(cur)%2 == 1 {
+					nxt = append(nxt, cur[len(cur)-1])
+				}
+				cur = nxt
+			}
+			resCt[j] = cur[0]
+		}
+		logf("  batch %d/%d: %10v elapsed, mul-avg %v",
+			j+1, ctsPerCol, time.Since(evalStart).Round(time.Millisecond),
+			perOp(st.MulTime, mulDone))
+	}
+	st.EvalTime = time.Since(t0)
+	st.MulOps, st.AddOps = expMul, expAdd
+	logf("phase4 eval done: %10v | mul %v (%v/op), add %v (%v/op)",
+		st.EvalTime, st.MulTime, perOp(st.MulTime, st.MulOps),
+		st.AddTime, perOp(st.AddTime, st.AddOps))
+
+	return resCt
 }
 
 // perOp returns the per-operation average duration, guarding against a zero

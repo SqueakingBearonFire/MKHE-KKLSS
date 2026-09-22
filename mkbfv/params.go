@@ -34,6 +34,19 @@ type Parameters struct {
 // NewParameters instantiate a set of MKCKKS parameters from the generic CKKS parameters and the CKKS-specific ones.
 // It returns the empty parameters Parameters{} and a non-nil error if the specified parameters are invalid.
 func NewParametersFromLiteral(pl ParametersLiteral) (params Parameters) {
+	return newParametersFromLiteral(pl, nil)
+}
+
+// NewParametersFromLiteralSeeded is NewParametersFromLiteral with the CRS of
+// both internal parameter sets (QP and R=Q*QMul) deterministically derived
+// from seed (domain-separated: seed||0x01 for QP, seed||0x02 for RP), so that
+// two parties passing the same literal and seed obtain identical parameters
+// including the CRS embedded in pk/rlk generation.
+func NewParametersFromLiteralSeeded(pl ParametersLiteral, seed []byte) (params Parameters) {
+	return newParametersFromLiteral(pl, seed)
+}
+
+func newParametersFromLiteral(pl ParametersLiteral, seed []byte) (params Parameters) {
 
 	if len(pl.Q) != len(pl.QMul) {
 		panic("cannot NewParametersFromLiteral: length of Q & QMul is not equal")
@@ -69,13 +82,18 @@ func NewParametersFromLiteral(pl ParametersLiteral) (params Parameters) {
 		rlwe.ParametersLiteral{LogN: pl.LogN, Q: R, P: pl.P, Sigma: pl.Sigma},
 	)
 	if err != nil {
-		panic(err)
 		panic("cannot NewParametersFromLiteral: ring RP cannot be generated")
-
 	}
 
-	params.Parameters = mkrlwe.NewParameters(rlweParamsQP, 2)
-	params.paramsRP = mkrlwe.NewParameters(rlweParamsRP, 2)
+	if seed != nil {
+		seedQP := append(append([]byte{}, seed...), 0x01)
+		seedRP := append(append([]byte{}, seed...), 0x02)
+		params.Parameters = mkrlwe.NewParametersSeeded(rlweParamsQP, 2, seedQP)
+		params.paramsRP = mkrlwe.NewParametersSeeded(rlweParamsRP, 2, seedRP)
+	} else {
+		params.Parameters = mkrlwe.NewParameters(rlweParamsQP, 2)
+		params.paramsRP = mkrlwe.NewParameters(rlweParamsRP, 2)
+	}
 
 	return params
 }

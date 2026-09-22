@@ -1,9 +1,11 @@
 # ============================================================================
 # MKHE-KKLSS : MK-BFV two-party weighted-sum (dot-product) benchmark toolbox
 #
-# Builds the CSV end-to-end CLI (-> /usr/local/bin/dotproduct, on PATH).
+# Builds the CSV end-to-end CLI (-> /usr/local/bin/dotproduct, on PATH) and
+# the two-process networked runner (-> /usr/local/bin/dotproductnet).
 # Nothing runs automatically: start an interactive shell and run commands
-# manually. All command examples: doc/dotproduct-report.md (Section 6).
+# manually. All command examples: doc/dotproduct-report.md (Section 6) and
+# doc/dotproduct-net.md.
 #
 #   docker build -t mkhe-dotproduct .
 #   docker run -it --rm mkhe-dotproduct            # enter a shell at /app
@@ -32,9 +34,10 @@ WORKDIR /app
 COPY go.mod ./
 RUN go mod download
 
-# source + build the CLI
+# source + build the CLIs
 COPY . .
-RUN go build -trimpath -o /usr/local/bin/dotproduct ./dotproduct
+RUN go build -trimpath -o /usr/local/bin/dotproduct ./dotproduct && \
+    go build -trimpath -o /usr/local/bin/dotproductnet ./dotproductnet
 
 # 显式钉死入口为 bash：覆盖基础镜像可能自带的 ENTRYPOINT/CMD，
 # 保证 docker run 不自动执行任何业务代码，进容器后手动输入指令运行

@@ -74,39 +74,6 @@ var PN15QP880 = ParametersLiteral{
 	Sigma: rlwe.DefaultSigma,
 }
 
-var PN14QP439 = ParametersLiteral{
-	LogN: 14,
-
-	Q: []uint64{
-		// 5 x 53 + 1 x 54
-		0x1fffffffe30001,
-		0x1fffffffd10001,
-		0x1fffffffbf0001,
-		0x1fffffffb60001,
-		0x1fffffff920001,
-
-		0x3fffffffd60001,
-	},
-
-	QMul: []uint64{
-		// 5 x 53 + 1 x 54
-		0x1fffffffd80001,
-		0x1fffffffc50001,
-		0x1fffffffb90001,
-		0x1fffffffa50001,
-		0x1fffffff900001,
-
-		0x3fffffffca0001,
-	},
-
-	P: []uint64{
-		// 2 x 60
-		0xffffffffffc0001, 0xfffffffff840001,
-	},
-	T:     65537,
-	Sigma: rlwe.DefaultSigma,
-}
-
 type testParams struct {
 	params    Parameters
 	ringQ     *ring.Ring

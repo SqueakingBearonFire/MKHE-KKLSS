@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(go version:*)",
+      "Bash(go:*)",
+      "Bash(powershell:*)",
+      "Read(//c/Users/pc/go/pkg/mod/github.com/ldsec/lattigo/**)",
+      "Read(//c/Users/pc/go/pkg/mod/github.com/ldsec/lattigo/v2@v2.3.0/bfv/**)",
+      "Bash(GOGC=40 GOMEMLIMIT=6GiB go test:*)",
+      "Bash(sed:*)",
+      "Bash(gofmt:*)",
+      "Bash(rm:*)"
+    ]
+  }
+}
